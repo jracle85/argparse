@@ -141,10 +141,11 @@ private:
     class Argument {
       public:
         Argument() : short_name(""), name(""), optional(true), fixed_nargs(0),
-		  	fixed(true), is_set(false) {}
-        Argument(const String& _short_name, const String& _name, bool _optional, char nargs)
+		  	fixed(true), hidden(false), is_set(false) {}
+        Argument(const String& _short_name, const String& _name, bool _optional,
+            char nargs, bool _hidden)
                 : short_name(_short_name), name(_name), optional(_optional),
-					 	is_set(false) {
+					hidden(_hidden), is_set(false) {
             if (nargs == '+' || nargs == '*') {
                 variable_nargs = nargs;
                 fixed = false;
@@ -161,6 +162,7 @@ private:
             char variable_nargs;
         };
         bool fixed;
+        bool hidden;
 		bool is_set;
         String canonicalName() const { return (name.empty()) ? short_name : name; }
         String toString(bool named = true) const {
@@ -226,23 +228,32 @@ public:
     // addArgument
     // --------------------------------------------------------------------------
     void appName(const String& name) { app_name_ = name; }
-    void addArgument(const String& name, char nargs = 0, bool optional = true) {
+    void addArgument(const String& name, char nargs = 0, bool optional = true,
+        bool hidden = false) {
         if (name.size() > 2) {
-            Argument arg("", verify(name), optional, nargs);
+            Argument arg("", verify(name), optional, nargs, hidden);
             insertArgument(arg);
         } else {
-            Argument arg(verify(name), "", optional, nargs);
+            Argument arg(verify(name), "", optional, nargs, hidden);
             insertArgument(arg);
         }
     }
     void addArgument(const String& short_name, const String& name, char nargs = 0,
-                     bool optional = true) {
-        Argument arg(verify(short_name), verify(name), optional, nargs);
+                     bool optional = true, bool hidden = false) {
+        Argument arg(verify(short_name), verify(name), optional, nargs, hidden);
         insertArgument(arg);
     }
-    void addFinalArgument(const String& name, char nargs = 1, bool optional = false) {
+    void addHiddenArgument(const String& name, char nargs = 0, bool optional = true){
+        addArgument(name, nargs, optional, true);
+    }
+    void addHiddenArgument(const String& short_name, const String& name, char nargs = 0,
+        bool optional = true){
+            addArgument(short_name, name, nargs, optional, true);
+    }
+    void addFinalArgument(const String& name, char nargs = 1, bool optional = false,
+        bool hidden = false) {
         final_name_ = delimit(name);
-        Argument arg("", final_name_, optional, nargs);
+        Argument arg("", final_name_, optional, nargs, hidden);
         insertArgument(arg);
     }
     void ignoreFirstArgument(bool ignore_first) { ignore_first_ = ignore_first; }
@@ -381,7 +392,7 @@ public:
         // get the required arguments
         for (ArgumentVector::const_iterator it = arguments_.begin(); it != arguments_.end(); ++it) {
             Argument arg = *it;
-            if (arg.optional) continue;
+            if (arg.optional || arg.hidden) continue;
             if (arg.name.compare(final_name_) == 0) continue;
             help << " ";
             String argstr = arg.toString();
@@ -397,7 +408,7 @@ public:
         // get the optional arguments
         for (ArgumentVector::const_iterator it = arguments_.begin(); it != arguments_.end(); ++it) {
             Argument arg = *it;
-            if (!arg.optional) continue;
+            if ((!arg.optional) || arg.hidden) continue;
             if (arg.name.compare(final_name_) == 0) continue;
             help << " ";
             String argstr = arg.toString();
@@ -413,14 +424,16 @@ public:
         // get the final argument
         if (!final_name_.empty()) {
             Argument arg = arguments_[index_[final_name_]];
-            String argstr = arg.toString(false);
-            if (argstr.size() + linelength > 80) {
-                help << "\n" << String(indent, ' ');
-                linelength = 0;
-            } else {
-                linelength += argstr.size();
+            if (!arg.hidden){
+                String argstr = arg.toString(false);
+                if (argstr.size() + linelength > 80) {
+                    help << "\n" << String(indent, ' ');
+                    linelength = 0;
+                } else {
+                    linelength += argstr.size();
+                }
+                help << argstr;
             }
-            help << argstr;
         }
 
         return help.str();

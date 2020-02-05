@@ -97,6 +97,7 @@ Method Summary
     useExceptions()       if true, parsing errors throw exceptions rather than printing to stderr and exiting
     appName()             set the name of the application
     addArgument()         specify an argument to search for
+    addHiddenArgument()   specify an hidden argument to search for (hidden because not showed when usage() is called).
     addFinalArgument()    specify a final un-named argument
     ignoreFirstArgument() don't parse the first argument (usually the caller name on UNIX)
     parse()               invoke the parser on a `char**` array
