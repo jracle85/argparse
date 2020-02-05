@@ -139,9 +139,11 @@ private:
     }
 
     struct Argument {
-        Argument() : short_name(""), name(""), optional(true), fixed_nargs(0), fixed(true) {}
+        Argument() : short_name(""), name(""), optional(true), fixed_nargs(0),
+		  	fixed(true), is_set(false) {}
         Argument(const String& _short_name, const String& _name, bool _optional, char nargs)
-                : short_name(_short_name), name(_name), optional(_optional) {
+                : short_name(_short_name), name(_name), optional(_optional),
+					 	is_set(false) {
             if (nargs == '+' || nargs == '*') {
                 variable_nargs = nargs;
                 fixed = false;
@@ -153,6 +155,7 @@ private:
         String short_name;
         String name;
         bool optional;
+		  bool is_set;
         union {
             size_t fixed_nargs;
             char variable_nargs;
@@ -199,7 +202,7 @@ private:
     // --------------------------------------------------------------------------
     void argumentError(const std::string& msg, bool show_usage = false) {
         if (use_exceptions_) throw std::invalid_argument(msg);
-        std::cerr << "ArgumentParser error: " << msg << std::endl;
+        std::cerr << "#####\nArgumentParser error: " << msg << std::endl;
         if (show_usage) std::cerr << usage() << std::endl;
         exit(-5);
     }
@@ -265,7 +268,7 @@ public:
         if (app_name_.empty() && ignore_first_ && !argv.empty()) app_name_ = argv[0];
 
         // set up the working set
-        Argument active;
+		  Argument active;
         Argument final = final_name_.empty() ? Argument() : arguments_[index_[final_name_]];
         size_t consumed = 0;
         size_t nrequired = final.optional ? required_ : required_ - 1;
@@ -278,7 +281,39 @@ public:
             String active_name = active.canonicalName();
             String el = *in;
             //  check if the element is a key
-            if (index_.count(el) == 0) {
+            if (index_.count(el)) {
+                // new key!
+                // has the active argument consumed enough elements?
+					if ((active.fixed && active.fixed_nargs != consumed) ||
+						 (!active.fixed && active.variable_nargs == '+' && consumed < 1))
+						argumentError(String("encountered argument ")
+                                      .append(el)
+                                      .append(" when expecting more inputs to ")
+                                      .append(active_name),
+                                  true);
+					active = arguments_[index_[el]];
+					if (active.is_set)
+						argumentError(String("argument ") .append(el)
+                                      .append(" seems to be set twice or more"),
+                                  false);
+					arguments_[index_[el]].is_set = true;
+					 /* It is possibly not yet fully set, but if there is an issue
+					 	with this argument (like not enough params passed) an error
+						message will appear later on, so we can say it was set here. */
+
+                // are there enough arguments for the new argument to consume?
+                if ((active.fixed && active.fixed_nargs > (argv.end() - in - nfinal - 1)) ||
+                    (!active.fixed && active.variable_nargs == '+' &&
+                     !(argv.end() - in - nfinal - 1)))
+                    argumentError(String("too few inputs passed to argument ").append(el), true);
+                if (!active.optional) nrequired--;
+                consumed = 0;
+            } else if (el[0] == '-'){
+					argumentError(String("encountered argument ")
+                              .append(el)
+										.append(" which isn't part of the possible arguments "),
+									  true);
+				} else {
                 // input
                 // is the current active argument expecting more inputs?
                 if (active.fixed && active.fixed_nargs <= consumed)
@@ -290,30 +325,6 @@ public:
                     variables_[index_[active_name]].castTo<StringVector>().push_back(el);
                 }
                 consumed++;
-            } else {
-                // new key!
-                // has the active argument consumed enough elements?
-                if ((active.fixed && active.fixed_nargs != consumed) ||
-                    (!active.fixed && active.variable_nargs == '+' && consumed < 1))
-                    argumentError(String("encountered argument ")
-                                      .append(el)
-                                      .append(" when expecting more inputs to ")
-                                      .append(active_name),
-                                  true);
-                active = arguments_[index_[el]];
-                // check if we've satisfied the required arguments
-                if (active.optional && nrequired > 0)
-                    argumentError(String("encountered optional argument ")
-                                      .append(el)
-                                      .append(" when expecting more required arguments"),
-                                  true);
-                // are there enough arguments for the new argument to consume?
-                if ((active.fixed && active.fixed_nargs > (argv.end() - in - nfinal - 1)) ||
-                    (!active.fixed && active.variable_nargs == '+' &&
-                     !(argv.end() - in - nfinal - 1)))
-                    argumentError(String("too few inputs passed to argument ").append(el), true);
-                if (!active.optional) nrequired--;
-                consumed = 0;
             }
         }
 
@@ -322,11 +333,17 @@ public:
              in != argv.end(); ++in) {
             String el = *in;
             // check if we accidentally find an argument specifier
-            if (index_.count(el))
+            if (index_.count(el)){
                 argumentError(String("encountered argument specifier ")
                                   .append(el)
                                   .append(" while parsing final required inputs"),
                               true);
+				} else if (el[0] == '-'){
+					argumentError(String("encountered argument ")
+                              .append(el)
+										.append(" which isn't part of the possible arguments "),
+									  true);
+				}
             if (final.fixed && final.fixed_nargs == 1) {
                 variables_[index_[final_name_]].castTo<String>() = el;
             } else {
@@ -416,15 +433,18 @@ public:
         arguments_.clear();
         variables_.clear();
     }
-    bool exists(const String& name) const { return index_.count(delimit(name)) > 0; }
-    size_t count(const String& name) {
+	 bool exists(const String& name) const {
+		 if (index_.count(delimit(name)) == 0) return 0;
+		 return arguments_[index_.at(delimit(name))].is_set;
+	 }
+    size_t count(const String& name) const {
         // check if the name is an argument
         if (index_.count(delimit(name)) == 0) return 0;
-        size_t N = index_[delimit(name)];
+        size_t N = index_.at(delimit(name));
         Argument arg = arguments_[N];
         Any var = variables_[N];
         // check if the argument is a vector
-        if (arg.fixed) {
+        if (arg.fixed && arg.fixed_nargs <= 1) {
             return !var.castTo<String>().empty();
         } else {
             return var.castTo<StringVector>().size();
