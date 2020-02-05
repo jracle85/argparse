@@ -138,7 +138,8 @@ private:
         return out;
     }
 
-    struct Argument {
+    class Argument {
+      public:
         Argument() : short_name(""), name(""), optional(true), fixed_nargs(0),
 		  	fixed(true), is_set(false) {}
         Argument(const String& _short_name, const String& _name, bool _optional, char nargs)
@@ -155,12 +156,12 @@ private:
         String short_name;
         String name;
         bool optional;
-		  bool is_set;
         union {
             size_t fixed_nargs;
             char variable_nargs;
         };
         bool fixed;
+		bool is_set;
         String canonicalName() const { return (name.empty()) ? short_name : name; }
         String toString(bool named = true) const {
             std::ostringstream s;
